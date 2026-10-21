@@ -26,7 +26,7 @@
 - 화면 문자열은 String Catalog(`Localizable.xcstrings`)로 관리한다(NFR-04). 색은 Asset Catalog 색 세트로 쓰고 다크 모드 변형을 함께 둔다(NFR-01). 주인 구분에는 색과 함께 글자를 붙인다(NFR-03).
 - 디데이: 시작일 당일이 D+1이다.
 - 알림 기본값: 모든 분류가 "당일 오전 8시"다. 예약 범위는 14일, 최대 64개다.
-- 앱 표시 이름은 아직 정하지 않았다. 표시 이름은 `우리 둘`(임시), 타깃 이름은 `DateApp`, URL 스킴은 `dateapp`이다. 번들 ID 접두사는 Task 1에서 사용자에게 묻는다.
+- 앱 표시 이름은 아직 정하지 않았다. 표시 이름은 `달콤`(임시), 타깃 이름은 `DateApp`, URL 스킴은 `dateapp`이다. 번들 ID 접두사는 Task 1에서 사용자에게 묻는다.
 
 ## Review Focus
 
@@ -87,7 +87,7 @@ v1에는 `categories`, `preferences`, `person_tags`, `date_records`, `photos`, `
 - [ ] **Step 3: 저장소는 이미 있다**(Windows에서 문서를 커밋하고 GitHub에 푸시해 둠. Mac에서는 `git clone`으로 받는다). `.gitignore`에 아래 항목이 모두 있는지 확인하고 없으면 추가한다. 제외 대상: `Config/Secrets.xcconfig`, `*.xcodeproj`(XcodeGen이 생성), `.build/`, `DerivedData/`, `supabase/.temp/`, `.env*`, `.DS_Store`.
 - [ ] **Step 4: `brew install xcodegen supabase/tap/supabase`.** 설치 전에 사용자에게 알린다(새 개발 도구 2개).
 - [ ] **Step 5: `project.yml`을 쓴다.** 앱 타깃(iOS 17, Swift Testing, URL 스킴 `dateapp`, `UIBackgroundModes: [fetch]`, `BGTaskSchedulerPermittedIdentifiers: [<prefix>.dateapp.refresh]`, 패키지 `supabase-swift` from `2.0.0` → 제품 `Supabase`, 로컬 패키지 `DateCore`), 위젯 확장 타깃(`DateCore`만 의존), 두 타깃 모두 App Groups 엔타이틀먼트 `group.<prefix>.dateapp`. xcconfig 기반 설정은 `Config/Secrets.xcconfig`다.
-- [ ] **Step 6: `DateCore` 패키지와 최소 앱·위젯 코드를 쓴다**(빈 화면 `Text("우리 둘")`, 정적 위젯 1개). 앱 타깃에 `Localizable.xcstrings`와 Asset Catalog 색 세트(팔레트 6색, 배경, 글자. 각각 다크 모드 변형 포함)를 넣는다.
+- [ ] **Step 6: `DateCore` 패키지와 최소 앱·위젯 코드를 쓴다**(빈 화면 `Text("달콤")`, 정적 위젯 1개). 앱 타깃에 `Localizable.xcstrings`와 Asset Catalog 색 세트(팔레트 6색, 배경, 글자. 각각 다크 모드 변형 포함)를 넣는다.
 - [ ] **Step 7: 빌드한다.** `cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig && xcodegen generate && xcodebuild -scheme DateApp -destination 'generic/platform=iOS Simulator' build` → `** BUILD SUCCEEDED **`
 - [ ] **Step 8: 무료 서명과 App Groups를 확인한다.** 사용자가 Xcode에서 Team을 Personal Team으로 고르고 실기기에 실행한다. 결과를 `docs/setup.md`에 적는다.
   - App Groups 서명 성공 → **위젯 A안**(Task 12 A).
@@ -299,7 +299,7 @@ v1에는 `categories`, `preferences`, `person_tags`, `date_records`, `photos`, `
 - LoginView: 이메일 입력 → "코드 보내기" → 6자리 입력 → 확인. 실패하면 "코드가 맞지 않아요. 다시 확인해 주세요."
 - OnboardingView: 버튼 2개 "커플 만들기", "초대 받았어요"
 - CreateCoupleView: 사귄 날(DatePicker, 비워 둘 수 있음), 닉네임(1~20자), 색(6색 전부) → createCouple → InviteShareView
-- InviteShareView: 코드를 `XXXX-XXXX`로 크게 보여 주고 `ShareLink` 텍스트 `"우리 둘 앱 초대 코드: XXXX-XXXX\ndateapp://join?code=XXXXXXXX"`를 공유한다. "나중에 할게" → 메인. 우리 탭에서도 다시 열 수 있다(멤버 1명일 때)
+- InviteShareView: 코드를 `XXXX-XXXX`로 크게 보여 주고 `ShareLink` 텍스트 `"달콤 초대 코드: XXXX-XXXX\ndateapp://join?code=XXXXXXXX"`를 공유한다. "나중에 할게" → 메인. 우리 탭에서도 다시 열 수 있다(멤버 1명일 때)
 - JoinCoupleView: 코드 입력(또는 URL로 미리 채움) → peekInvite
   - `invalid` → 알림창 `접근할 수 없는 링크입니다.`
   - `in_full_couple` → 알림창 `이미 커플이 연결되어 있어요. 연결을 끊은 뒤 다시 시도해 주세요.`
