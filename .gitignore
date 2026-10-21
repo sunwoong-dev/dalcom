@@ -1,0 +1,16 @@
+# 비밀값
+Config/Secrets.xcconfig
+.env*
+
+# Xcode / Swift
+*.xcodeproj
+.build/
+DerivedData/
+xcuserdata/
+
+# Supabase
+supabase/.temp/
+
+# OS
+.DS_Store
+Thumbs.db
