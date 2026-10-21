@@ -1,0 +1,80 @@
+# XcodeGen 설정. `xcodegen generate`로 DateApp.xcodeproj를 만든다(생성물은 git 제외).
+name: DateApp
+options:
+  bundleIdPrefix: com.sunwoong
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.0.0
+  DateCore:
+    path: Packages/DateCore
+
+targets:
+  DateApp:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    # Secrets.xcconfig에 SUPABASE_URL, SUPABASE_ANON_KEY, DEVELOPMENT_TEAM을 둔다
+    configFiles:
+      Debug: Config/Secrets.xcconfig
+      Release: Config/Secrets.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sunwoong.dalcom
+        INFOPLIST_FILE: App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+    # 무료 서명에서 App Groups가 안 되면(B안) 이 entitlements 블록을 지운다
+    entitlements:
+      path: App/DateApp.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.sunwoong.dalcom
+    dependencies:
+      - package: Supabase
+        product: Supabase
+      - package: DateCore
+      - target: DateWidget
+
+  DateWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widget
+    configFiles:
+      Debug: Config/Secrets.xcconfig
+      Release: Config/Secrets.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sunwoong.dalcom.widget
+        INFOPLIST_FILE: Widget/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+    # B안이면 이 entitlements 블록도 지운다
+    entitlements:
+      path: Widget/DateWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.sunwoong.dalcom
+    dependencies:
+      - package: DateCore
+
+schemes:
+  DateApp:
+    build:
+      targets:
+        DateApp: all
+        DateWidget: all
+    run:
+      config: Debug
+    archive:
+      config: Release
