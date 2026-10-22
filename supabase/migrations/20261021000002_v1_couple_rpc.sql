@@ -153,7 +153,12 @@ declare
   v record;
 begin
   -- 같은 코드로 동시에 가입하면 여기서 줄을 선다. 뒤 사람은 다음 문장에서 지워진 코드를 본다
-  perform 1 from couples where id = (select couple_id from invites where code = p_code) for update;
+  -- 내 커플도 함께 잠근다: 누가 내 1인 커플에 막 가입했는데 내가 그 커플을 지우는 경합을 막는다
+  -- 두 행을 id 순서로 잠가 교착을 피한다
+  perform 1 from couples
+    where id in ((select couple_id from invites where code = p_code),
+                 (select couple_id from couple_members where user_id = auth.uid()))
+    order by id for update;
   v := invite_status(p_code);
 
   if v.status = 'invalid' then
