@@ -1,7 +1,7 @@
 -- 연결 끊기·계정 삭제 RPC 검증 (CPL-06, CPL-06a, CPL-07)
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(30);
+select plan(31);
 -- 복합 외래 키는 deferrable이라 위반을 문장 단위로 잡으려고 즉시 검사로 바꾼다
 -- RPC 호출 동안만 deferred로 두고, 호출 뒤 immediate로 돌려 커밋 시점 검사를 대신한다
 set constraints all immediate;
@@ -22,7 +22,8 @@ grant all on t to authenticated;
 -- 픽스처: ua(민수, sky)가 커플을 만들고 ub(지은, pink)가 가입한 뒤 일정을 넣는다
 -- 일정 이름은 memo에 둔다. 입력자를 직접 정하려고 JWT를 비운 채(postgres) insert 한다
 -- e1 ua 입력·ua 일정 / e2 ub 입력·ub 오전 당직 / e3 ua 입력·ub 오후 당직(대신 찍음) / e4 ub 입력·같이
--- p_extra: e5 ub 입력·ub 오후 당직(다른 날), e7 ub 입력·ua 오전 당직(e2와 같은 날)
+-- e6 ub 입력·ua 일정(대신 입력)
+-- p_extra: e5 ub 입력·ub 오후 당직(다른 날), e7 ub 입력·ua 오전 당직, e8 ua 입력·ua 오후 당직
 create function pg_temp.mk(ua uuid, ub uuid, p_extra boolean) returns uuid
 language plpgsql as $$
 declare
@@ -43,11 +44,13 @@ begin
     (c, 'member', ma, ma, null, '민수 일정', '2026-11-01', 'e1'),
     (c, 'member', mb, mb, am, null, '2026-11-02', 'e2'),
     (c, 'member', mb, ma, pm, null, '2026-11-03', 'e3'),
-    (c, 'together', null, mb, null, '같이', '2026-11-04', 'e4');
+    (c, 'together', null, mb, null, '같이', '2026-11-04', 'e4'),
+    (c, 'member', ma, mb, null, '대신 입력', '2026-11-06', 'e6');
   if p_extra then
     insert into events (couple_id, owner_kind, owner_member_id, created_by_member_id, shift_type_id, title, day, memo) values
       (c, 'member', mb, mb, pm, null, '2026-11-05', 'e5'),
-      (c, 'member', ma, mb, am, null, '2026-11-02', 'e7');
+      (c, 'member', ma, mb, am, null, '2026-11-02', 'e7'),
+      (c, 'member', ma, ma, pm, null, '2026-11-07', 'e8');
   end if;
   insert into anniversaries (couple_id, title, date) values (c, '첫 만남', '2026-02-14');
   return c;
@@ -82,12 +85,10 @@ set constraints all deferred;
 insert into t values ('n1', public.leave_couple()::text);
 select lives_ok($$set constraints all immediate$$, 'leave_keeps_own_events (fk hold at commit)');
 
-select is((select string_agg(memo, ',' order by memo) from events), 'e1,e3', 'leave_keeps_own_events (u1 events)');
+select is((select string_agg(memo, ',' order by memo) from events), 'e1', 'leave_keeps_own_events (u1 events)');
 select is((select couple_id::text from couple_members where user_id = auth.uid()), (select v from t where k = 'n1'),
   'leave_keeps_own_events (u1 in new couple)');
 select is((select role from couple_members where user_id = auth.uid()), 'owner', 'leave_keeps_own_events (u1 owner)');
-select is((select owner_member_id from events where memo = 'e3'),
-  (select id from couple_members where user_id = auth.uid()), 'leave_keeps_own_events (e3 owner = u1)');
 select is((select count(*)::int from public.current_invite()), 1, 'leave_keeps_own_events (u1 invite)');
 
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
@@ -97,30 +98,27 @@ select is((select role from couple_members where user_id = auth.uid()), 'owner',
 select is((select count(*)::int from public.current_invite()), 1, 'leave_keeps_own_events (u2 invite)');
 
 reset role;
-select is((select s.couple_id::text from events e join shift_types s on s.id = e.shift_type_id where e.memo = 'e3'
-           and e.couple_id = (select v::uuid from t where k = 'n1')),
-  (select v from t where k = 'n1'), 'leave_keeps_own_events (e3 shift_type in new couple)');
+-- 주인이 상대인 일정은 누가 입력했든 양쪽에서 지운다 (R16)
+select is((select count(*)::int from events where memo = 'e3'
+           and couple_id in ((select v::uuid from t where k = 'c1'), (select v::uuid from t where k = 'n1'))),
+  0, 'leave_keeps_own_events (e3 proxy stamp gone)');
+select is((select count(*)::int from events where memo = 'e6'
+           and couple_id in ((select v::uuid from t where k = 'c1'), (select v::uuid from t where k = 'n1'))),
+  0, 'leave_drops_partner_owned_events');
 select is((select count(*)::int from anniversaries where couple_id = (select v::uuid from t where k = 'c1')),
   0, 'leave_keeps_own_events (anniversaries gone)');
 select is((select start_date from couples where id = (select v::uuid from t where k = 'n1')), null,
   'leave_keeps_own_events (new couple start_date null)');
 
--- 남은 사람은 근무 유형을 하나도 잃지 않고, 끊은 사람은 쓰던 유형의 복사본만 받는다
+-- 남은 사람은 근무 유형을 하나도 잃지 않는다. 끊은 사람은 옮긴 일정이 쓰는 유형만 복사받는다(여기선 없음)
 select is(
   (select string_agg(id::text, ',' order by name) from shift_types where couple_id = (select v::uuid from t where k = 'c1')),
   (select v from t where k = 'st1'), 'leave_partner_keeps_all_types (old couple keeps original ids)');
 select is(
   (select string_agg(name, ',' order by name) from shift_types where couple_id = (select v::uuid from t where k = 'c1')),
   '오전 당직,오후 당직', 'leave_partner_keeps_all_types (old couple both defaults)');
-select is(
-  (select count(*)::int from shift_types s
-   where s.couple_id = (select v::uuid from t where k = 'n1')
-     and position(s.id::text in (select v from t where k = 'st1')) = 0
-     and exists (select 1 from events e where e.shift_type_id = s.id and e.memo in ('e1', 'e3'))),
-  (select count(*)::int from shift_types where couple_id = (select v::uuid from t where k = 'n1')),
-  'leave_partner_keeps_all_types (new couple types are used copies)');
 select is((select count(*)::int from shift_types where couple_id = (select v::uuid from t where k = 'n1')),
-  1, 'leave_partner_keeps_all_types (new couple has the one used copy)');
+  0, 'leave_partner_keeps_all_types (new couple copies only used types)');
 
 -- ===== leave_copies_shared_shift_type: 커플2에서 a3이 끊는다 =====
 set local role authenticated;
@@ -131,7 +129,7 @@ select lives_ok($$set constraints all immediate$$, 'leave_copies_shared_shift_ty
 reset role;
 
 select isnt(
-  (select shift_type_id from events where memo = 'e3' and couple_id = (select v::uuid from t where k = 'n2')),
+  (select shift_type_id from events where memo = 'e8' and couple_id = (select v::uuid from t where k = 'n2')),
   (select shift_type_id from events where memo = 'e5' and couple_id = (select v::uuid from t where k = 'c2')),
   'leave_copies_shared_shift_type');
 select is(
@@ -143,10 +141,18 @@ select is(
   (select count(*)::int from shift_types s join couple_members m on m.id = s.owner_member_id
    where s.couple_id = (select v::uuid from t where k = 'c2') and m.user_id = '00000000-0000-0000-0000-0000000000a4'),
   2, 'leave_copies_shared_shift_type (old shift_types owned by u4)');
--- e7(a4가 a3 오전 당직을 대신 찍음)은 a4에게 남는데 e2와 같은 도장이 되어 하나로 합쳐진다
+-- 복사본의 주인은 끊은 사람이다
+select is(
+  (select m.user_id from events e join shift_types s on s.id = e.shift_type_id join couple_members m on m.id = s.owner_member_id
+   where e.memo = 'e8' and e.couple_id = (select v::uuid from t where k = 'n2')),
+  '00000000-0000-0000-0000-0000000000a3'::uuid, 'leave_copies_shared_shift_type (copy owned by leaver)');
+-- e3·e7(대신 찍은 도장)과 e6은 양쪽에서 지워진다
 select is(
   (select string_agg(memo, ',' order by memo) from events where couple_id = (select v::uuid from t where k = 'c2')),
-  'e2,e4,e5', 'leave_dedupes_collided_stamp');
+  'e2,e4,e5', 'leave_drops_partner_owned_events (c2 remaining)');
+select is(
+  (select string_agg(memo, ',' order by memo) from events where couple_id = (select v::uuid from t where k = 'n2')),
+  'e1,e8', 'leave_drops_partner_owned_events (n2 moved)');
 
 -- ===== delete_account_removes_user: 커플3에서 a5가 계정을 지운다 =====
 set local role authenticated;

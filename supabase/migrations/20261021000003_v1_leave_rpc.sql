@@ -3,7 +3,8 @@
 -- 멤버·일정·근무 유형을 여러 문장에 걸쳐 옮기므로 복합 외래 키(deferrable)는 커밋 시점에 검사된다.
 
 -- 연결 끊기: 혼자면 커플을 지우고 null, 둘이면 나를 새 1인 커플로 옮기고 그 id를 반환한다
--- 기준은 입력자(created_by)다. 내가 입력한 일정만 내게 오고, 상대가 입력한 일정은 상대에게 남는다
+-- 각자 "자기가 입력했고 주인이 자기이거나 같이인" 일정만 갖는다 (CPL-06a, R16)
+-- 주인이 상대인 일정은 누가 입력했든 지운다
 create function public.leave_couple() returns uuid
 language plpgsql
 security definer
@@ -15,8 +16,7 @@ declare
   v_me uuid;
   v_st uuid;
   v_copy uuid;
-  v_c uuid;
-  v_sole uuid;
+  v_partner uuid;
 begin
   select couple_id into v_old from couple_members where user_id = auth.uid();
   -- 가입·다른 끊기와 겹치지 않게 커플 행을 잠근 뒤 다시 읽는다
@@ -32,35 +32,32 @@ begin
     return null;
   end if;
 
-  -- 1. 새 커플로 내 멤버 행을 옮긴다
+  select id into v_partner from couple_members where couple_id = v_old and id <> v_me;
+
+  -- 1. 아무도 갖지 않는 일정을 먼저 지운다: 주인이 입력자가 아닌 개인 일정, 입력자가 없는 일정
+  --    (멤버 행을 옮기기 전에 지워 on delete set null·주인 check 경로를 타지 않는다)
+  delete from events
+    where couple_id = v_old
+      and not (created_by_member_id is not null
+               and (owner_kind = 'together' or owner_member_id = created_by_member_id));
+
+  -- 2. 새 커플로 내 멤버 행을 옮긴다
   insert into couples (start_date, created_by) values (null, auth.uid()) returning id into v_new;
   update couple_members set couple_id = v_new, role = 'owner' where id = v_me;
 
-  -- 2. 내가 입력한 일정을 옮긴다 (트리거가 created_by를 유지한다)
+  -- 3. 내가 입력한 일정을 옮긴다 (트리거가 created_by를 유지한다)
   update events set couple_id = v_new where couple_id = v_old and created_by_member_id = v_me;
 
-  -- 3. 옮긴 일정이 쓰는 근무 유형은 새 커플에 복사해 가리키게 한다. 기존 커플의 유형은 그대로 남긴다
+  -- 4. 옮긴 일정이 쓰는 근무 유형은 새 커플에 내 것으로 복사해 가리키게 한다. 기존 커플의 유형은 그대로 남긴다
   for v_st in select distinct shift_type_id from events where couple_id = v_new and shift_type_id is not null loop
     insert into shift_types (couple_id, owner_member_id, name, short_label, color, all_day, start_time, end_time, sort_order)
-      select v_new, owner_member_id, name, short_label, color, all_day, start_time, end_time, sort_order
+      select v_new, v_me, name, short_label, color, all_day, start_time, end_time, sort_order
       from shift_types where id = v_st
       returning id into v_copy;
     update events set shift_type_id = v_copy where couple_id = v_new and shift_type_id = v_st;
   end loop;
-
-  -- 4. 두 커플 모두 멤버가 1명이므로, 그 커플 멤버가 아닌 주인은 남은 한 명으로 바꾼다
-  --    (그 커플에 남은 일정의 입력자는 그 한 명이거나 null이라 "주인 = 입력자, 없으면 남은 멤버"와 같다)
-  foreach v_c in array array[v_old, v_new] loop
-    select id into v_sole from couple_members where couple_id = v_c;
-    -- 바꾸면 같은 사람·유형·날의 도장이 둘이 되는 경우, 대신 찍은 쪽을 지운다
-    delete from events e
-      where e.couple_id = v_c and e.owner_member_id <> v_sole and e.shift_type_id is not null
-        and exists (select 1 from events d
-                    where d.couple_id = v_c and d.owner_member_id = v_sole
-                      and d.shift_type_id = e.shift_type_id and d.day = e.day);
-    update events set owner_member_id = v_sole where couple_id = v_c and owner_member_id <> v_sole;
-    update shift_types set owner_member_id = v_sole where couple_id = v_c and owner_member_id <> v_sole;
-  end loop;
+  -- 기존 커플에서 내가 주인이던 근무 유형은 남은 사람 것이 된다
+  update shift_types set owner_member_id = v_partner where couple_id = v_old and owner_member_id = v_me;
 
   -- 5. 직접 추가한 기념일은 둘 다에게서 지운다
   delete from anniversaries where couple_id = v_old;
