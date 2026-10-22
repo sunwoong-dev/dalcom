@@ -1,7 +1,7 @@
 -- v1 스키마의 행 단위 보안(RLS)과 유니크 제약 검증
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(10);
+select plan(11);
 -- 복합 외래 키는 deferrable이라 위반을 문장 단위로 잡으려고 즉시 검사로 바꾼다
 set constraints all immediate;
 
@@ -29,6 +29,10 @@ insert into shift_types (id, couple_id, owner_member_id, name, short_label, colo
 
 insert into events (couple_id, owner_kind, owner_member_id, title, day) values
   ('00000000-0000-0000-0000-0000000000c1', 'together', null, '데이트', '2026-10-21');
+
+-- u1이 입력한 일정 (events_created_by_immutable용)
+insert into events (id, couple_id, owner_kind, created_by_member_id, title, day) values
+  ('00000000-0000-0000-0000-0000000000e2', '00000000-0000-0000-0000-0000000000c1', 'together', '00000000-0000-0000-0000-0000000000b1', 'u1 일정', '2026-10-25');
 
 -- u3 시점
 set local role authenticated;
@@ -64,6 +68,14 @@ insert into events (id, couple_id, owner_kind, created_by_member_id, title, day)
 select is(
   (select created_by_member_id from events where id = '00000000-0000-0000-0000-0000000000e1'),
   '00000000-0000-0000-0000-0000000000b2'::uuid, 'events_created_by_forced');
+
+-- u1이 입력한 일정의 입력자를 u2로 바꿔도 u1로 남는다
+update events set created_by_member_id = '00000000-0000-0000-0000-0000000000b2', title = '수정'
+  where id = '00000000-0000-0000-0000-0000000000e2';
+
+select is(
+  (select created_by_member_id from events where id = '00000000-0000-0000-0000-0000000000e2' and title = '수정'),
+  '00000000-0000-0000-0000-0000000000b1'::uuid, 'events_created_by_immutable');
 
 select is(
   (select count(*)::int from couple_members where couple_id = '00000000-0000-0000-0000-0000000000c1'),

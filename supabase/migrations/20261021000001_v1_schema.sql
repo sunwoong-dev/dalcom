@@ -147,14 +147,21 @@ as $$
 $$;
 
 -- 일정 입력자는 로그인한 사용자로 강제한다
--- RPC처럼 auth.uid()가 없는 경우는 넘긴 값을 그대로 둔다
+-- insert: 호출자의 멤버 id로 채운다. update: 원래 값을 유지한다(수정으로 바꿀 수 없음)
+-- auth.uid()가 null인 경우는 SQL 직접 실행(마이그레이션·테스트 픽스처)뿐이고,
+-- RPC 안에서도 JWT가 유지되므로 호출자 기준으로 강제된다
 create function public.set_event_created_by() returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
 begin
-  if auth.uid() is not null then
+  if auth.uid() is null then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' then
+    new.created_by_member_id := old.created_by_member_id;
+  else
     new.created_by_member_id := (
       select id from couple_members
       where couple_id = new.couple_id and user_id = auth.uid()
@@ -164,7 +171,7 @@ begin
 end;
 $$;
 
-create trigger set_event_created_by before insert on public.events
+create trigger set_event_created_by before insert or update on public.events
   for each row execute function public.set_event_created_by();
 
 -- 모든 테이블 RLS 켜기
