@@ -1,7 +1,7 @@
 -- 연결 끊기·계정 삭제 RPC 검증 (CPL-06, CPL-06a, CPL-07)
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(26);
+select plan(30);
 -- 복합 외래 키는 deferrable이라 위반을 문장 단위로 잡으려고 즉시 검사로 바꾼다
 -- RPC 호출 동안만 deferred로 두고, 호출 뒤 immediate로 돌려 커밋 시점 검사를 대신한다
 set constraints all immediate;
@@ -59,6 +59,10 @@ insert into t values
   ('c2', pg_temp.mk('00000000-0000-0000-0000-0000000000a3', '00000000-0000-0000-0000-0000000000a4', true)::text),
   ('c3', pg_temp.mk('00000000-0000-0000-0000-0000000000a5', '00000000-0000-0000-0000-0000000000a6', false)::text);
 
+-- 커플1의 원래 근무 유형 id (끊은 뒤에도 그대로 남아야 한다)
+insert into t select 'st1', string_agg(id::text, ',' order by name) from shift_types
+  where couple_id = (select v::uuid from t where k = 'c1');
+
 -- ===== leave_alone_deletes: a7 혼자 =====
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000a7","role":"authenticated"}';
@@ -100,6 +104,23 @@ select is((select count(*)::int from anniversaries where couple_id = (select v::
   0, 'leave_keeps_own_events (anniversaries gone)');
 select is((select start_date from couples where id = (select v::uuid from t where k = 'n1')), null,
   'leave_keeps_own_events (new couple start_date null)');
+
+-- 남은 사람은 근무 유형을 하나도 잃지 않고, 끊은 사람은 쓰던 유형의 복사본만 받는다
+select is(
+  (select string_agg(id::text, ',' order by name) from shift_types where couple_id = (select v::uuid from t where k = 'c1')),
+  (select v from t where k = 'st1'), 'leave_partner_keeps_all_types (old couple keeps original ids)');
+select is(
+  (select string_agg(name, ',' order by name) from shift_types where couple_id = (select v::uuid from t where k = 'c1')),
+  '오전 당직,오후 당직', 'leave_partner_keeps_all_types (old couple both defaults)');
+select is(
+  (select count(*)::int from shift_types s
+   where s.couple_id = (select v::uuid from t where k = 'n1')
+     and position(s.id::text in (select v from t where k = 'st1')) = 0
+     and exists (select 1 from events e where e.shift_type_id = s.id and e.memo in ('e1', 'e3'))),
+  (select count(*)::int from shift_types where couple_id = (select v::uuid from t where k = 'n1')),
+  'leave_partner_keeps_all_types (new couple types are used copies)');
+select is((select count(*)::int from shift_types where couple_id = (select v::uuid from t where k = 'n1')),
+  1, 'leave_partner_keeps_all_types (new couple has the one used copy)');
 
 -- ===== leave_copies_shared_shift_type: 커플2에서 a3이 끊는다 =====
 set local role authenticated;

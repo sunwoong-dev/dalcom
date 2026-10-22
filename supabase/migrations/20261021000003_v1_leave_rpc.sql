@@ -39,17 +39,13 @@ begin
   -- 2. 내가 입력한 일정을 옮긴다 (트리거가 created_by를 유지한다)
   update events set couple_id = v_new where couple_id = v_old and created_by_member_id = v_me;
 
-  -- 3. 옮긴 일정이 쓰는 근무 유형: 남은 일정도 쓰면 복사, 아니면 통째로 옮긴다
+  -- 3. 옮긴 일정이 쓰는 근무 유형은 새 커플에 복사해 가리키게 한다. 기존 커플의 유형은 그대로 남긴다
   for v_st in select distinct shift_type_id from events where couple_id = v_new and shift_type_id is not null loop
-    if exists (select 1 from events where couple_id = v_old and shift_type_id = v_st) then
-      insert into shift_types (couple_id, owner_member_id, name, short_label, color, all_day, start_time, end_time, sort_order)
-        select v_new, owner_member_id, name, short_label, color, all_day, start_time, end_time, sort_order
-        from shift_types where id = v_st
-        returning id into v_copy;
-      update events set shift_type_id = v_copy where couple_id = v_new and shift_type_id = v_st;
-    else
-      update shift_types set couple_id = v_new where id = v_st;
-    end if;
+    insert into shift_types (couple_id, owner_member_id, name, short_label, color, all_day, start_time, end_time, sort_order)
+      select v_new, owner_member_id, name, short_label, color, all_day, start_time, end_time, sort_order
+      from shift_types where id = v_st
+      returning id into v_copy;
+    update events set shift_type_id = v_copy where couple_id = v_new and shift_type_id = v_st;
   end loop;
 
   -- 4. 두 커플 모두 멤버가 1명이므로, 그 커플 멤버가 아닌 주인은 남은 한 명으로 바꾼다
