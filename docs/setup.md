@@ -17,7 +17,7 @@
 
 ## 1. 도구 설치
 
-Xcode 16 이상을 App Store에서 설치하고 한 번 실행해 추가 구성요소 설치를 마친다. 그다음 Homebrew로 XcodeGen을 설치한다. Supabase CLI는 전역 설치하지 않고 Windows와 Mac 모두 `npx supabase@<버전>`으로 실행한다(고정 버전: [버전 기록 대기]). 그래서 Node.js(npx)가 필요하다. 로컬 Supabase를 돌리려면 Docker Desktop도 필요하다.
+Xcode 16 이상을 App Store에서 설치하고 한 번 실행해 추가 구성요소 설치를 마친다. 그다음 Homebrew로 XcodeGen을 설치한다. Supabase CLI는 전역 설치하지 않고 Windows와 Mac 모두 `npx supabase@2.121.0`으로 실행한다(고정 버전: 2.121.0). 그래서 Node.js(npx)가 필요하다. 로컬 Supabase를 돌리려면 Docker Desktop도 필요하다.
 
 ```sh
 xcodebuild -version        # Xcode 16 이상인지 확인
@@ -78,6 +78,7 @@ swift test --package-path Packages/DateCore
 xcodebuild -version
 brew --version
 docker --version
+node --version
 ```
 
 Xcode가 16보다 낮으면 진행하지 말고 macOS 버전과 Mac 모델을 기록한다.
@@ -88,7 +89,7 @@ Xcode가 16보다 낮으면 진행하지 말고 macOS 버전과 Mac 모델을 �
 brew install xcodegen
 ```
 
-Supabase CLI는 설치하지 않고 `npx supabase@[버전 기록 대기] --version`으로 실행되는지만 확인한다.
+Supabase CLI는 설치하지 않고 `npx supabase@2.121.0 --version`으로 실행되는지만 확인한다.
 
 ### 7단계: 빌드 (미확인)
 
