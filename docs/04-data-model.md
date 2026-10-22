@@ -11,6 +11,7 @@
 - 커플 데이터 테이블에는 모두 `couple_id uuid not null references couples(id) on delete cascade`를 둔다. 아래 표에서는 **[C]** 로 표시한다.
   - 삭제는 실제 삭제다. ~~`deleted_at` 소프트 삭제 + 증분 동기화~~ 2026-10-21 변경. 사유: v1은 전체 동기화를 쓴다(03 §4.2).
 - RLS: [C] 테이블은 모두 `is_member(couple_id)`일 때만 select/insert/update/delete를 허용한다(03 §5).
+- 멤버·근무 유형 참조(`owner_member_id`, `created_by_member_id`, `shift_type_id`)는 `couple_id`를 포함한 복합 외래 키라서 같은 커플 안만 가리킬 수 있고, `events.created_by_member_id`는 로그인한 사용자 기준으로 트리거가 채운다(2026-10-22 추가, 사유: 커플 간 참조 차단).
 - 날짜만 있는 값은 `date`(기기 시간대 기준 그날)이고, 시각은 `time`, 순간은 `timestamptz`다.
 - 열거형은 Postgres `text` + `check` 제약으로 둔다(마이그레이션이 쉬움).
 

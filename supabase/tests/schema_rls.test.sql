@@ -1,7 +1,9 @@
 -- v1 스키마의 행 단위 보안(RLS)과 유니크 제약 검증
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(7);
+select plan(10);
+-- 복합 외래 키는 deferrable이라 위반을 문장 단위로 잡으려고 즉시 검사로 바꾼다
+set constraints all immediate;
 
 -- 준비: 사용자 4명, u1·u2 커플 C1, u3 커플 C2, u4는 커플 없음 (superuser로 만든다)
 insert into auth.users (id, email) values
@@ -41,8 +43,27 @@ select throws_ok(
     values ('00000000-0000-0000-0000-0000000000c1', 'together', '침입', '2026-10-22')$$,
   '42501', null, 'events_insert_blocked');
 
+-- u3가 자기 커플(C2) 일정에 C1의 멤버·근무 유형을 넣으면 외래 키 위반
+select throws_ok(
+  $$insert into events (couple_id, owner_kind, owner_member_id, title, day)
+    values ('00000000-0000-0000-0000-0000000000c2', 'member', '00000000-0000-0000-0000-0000000000b1', '남의 멤버', '2026-10-22')$$,
+  '23503', null, 'events_cross_couple_ref_blocked (member)');
+
+select throws_ok(
+  $$insert into events (couple_id, owner_kind, owner_member_id, shift_type_id, day)
+    values ('00000000-0000-0000-0000-0000000000c2', 'member', '00000000-0000-0000-0000-0000000000b3', '00000000-0000-0000-0000-0000000000d1', '2026-10-22')$$,
+  '23503', null, 'events_cross_couple_ref_blocked (shift_type)');
+
 -- u2 시점
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
+
+-- 입력자를 u1으로 속여도 u2로 저장된다
+insert into events (id, couple_id, owner_kind, created_by_member_id, title, day) values
+  ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', 'together', '00000000-0000-0000-0000-0000000000b1', '속임', '2026-10-24');
+
+select is(
+  (select created_by_member_id from events where id = '00000000-0000-0000-0000-0000000000e1'),
+  '00000000-0000-0000-0000-0000000000b2'::uuid, 'events_created_by_forced');
 
 select is(
   (select count(*)::int from couple_members where couple_id = '00000000-0000-0000-0000-0000000000c1'),

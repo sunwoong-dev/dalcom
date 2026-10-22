@@ -33,7 +33,9 @@ create table public.couple_members (
   nickname text not null check (char_length(nickname) between 1 and 20),
   birthday date,
   color text not null check (color in ('pink', 'sky', 'mint', 'lilac', 'peach', 'lemon')),
-  unique (couple_id, color)
+  unique (couple_id, color),
+  -- 복합 외래 키 대상: 같은 커플 안의 멤버만 참조하게 한다
+  unique (couple_id, id)
 );
 
 -- 초대 코드 (커플당 1개, RPC로만 접근)
@@ -52,14 +54,20 @@ create table public.shift_types (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   couple_id uuid not null references public.couples on delete cascade,
-  owner_member_id uuid references public.couple_members on delete set null,
+  owner_member_id uuid,
   name text not null,
   short_label text not null check (char_length(short_label) between 1 and 3),
   color text not null check (color in ('pink', 'sky', 'mint', 'lilac', 'peach', 'lemon')),
   all_day boolean not null default true,
   start_time time,
   end_time time,
-  sort_order smallint not null default 0
+  sort_order smallint not null default 0,
+  -- 복합 외래 키 대상: 같은 커플 안의 근무 유형만 참조하게 한다
+  unique (couple_id, id),
+  -- 다른 커플의 멤버를 가리킬 수 없다. 멤버가 지워지면 owner_member_id만 비운다
+  -- deferrable: 연결 끊기 RPC가 한 트랜잭션에서 멤버와 행을 함께 옮긴다
+  foreign key (couple_id, owner_member_id) references public.couple_members (couple_id, id)
+    on delete set null (owner_member_id) deferrable initially deferred
 );
 
 -- 일정과 근무 도장
@@ -69,9 +77,9 @@ create table public.events (
   updated_at timestamptz not null default now(),
   couple_id uuid not null references public.couples on delete cascade,
   owner_kind text not null check (owner_kind in ('member', 'together')),
-  owner_member_id uuid references public.couple_members on delete set null,
-  created_by_member_id uuid references public.couple_members on delete set null,
-  shift_type_id uuid references public.shift_types on delete cascade,
+  owner_member_id uuid,
+  created_by_member_id uuid,
+  shift_type_id uuid,
   title text,
   day date not null,
   end_day date,
@@ -82,12 +90,19 @@ create table public.events (
   -- 개인 일정은 주인이 있어야 한다
   check (owner_kind <> 'member' or owner_member_id is not null),
   -- 도장이 아니면 제목이 있어야 한다
-  check (shift_type_id is not null or title is not null)
+  check (shift_type_id is not null or title is not null),
+  -- 참조는 모두 같은 커플 안으로만 (couple_id는 절대 비우지 않는다)
+  foreign key (couple_id, owner_member_id) references public.couple_members (couple_id, id)
+    on delete set null (owner_member_id) deferrable initially deferred,
+  foreign key (couple_id, created_by_member_id) references public.couple_members (couple_id, id)
+    on delete set null (created_by_member_id) deferrable initially deferred,
+  foreign key (couple_id, shift_type_id) references public.shift_types (couple_id, id)
+    on delete cascade deferrable initially deferred
 );
 
 -- 도장 중복 방지: 같은 사람·같은 유형·같은 날은 한 번만
 create unique index events_shift_stamp_unique
-  on public.events (owner_member_id, shift_type_id, day)
+  on public.events (couple_id, owner_member_id, shift_type_id, day)
   where shift_type_id is not null;
 create index events_couple_day_idx on public.events (couple_id, day);
 create index events_couple_updated_idx on public.events (couple_id, updated_at);
@@ -130,6 +145,27 @@ as $$
     where couple_id = p_couple_id and user_id = auth.uid()
   );
 $$;
+
+-- 일정 입력자는 로그인한 사용자로 강제한다
+-- RPC처럼 auth.uid()가 없는 경우는 넘긴 값을 그대로 둔다
+create function public.set_event_created_by() returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is not null then
+    new.created_by_member_id := (
+      select id from couple_members
+      where couple_id = new.couple_id and user_id = auth.uid()
+    );
+  end if;
+  return new;
+end;
+$$;
+
+create trigger set_event_created_by before insert on public.events
+  for each row execute function public.set_event_created_by();
 
 -- 모든 테이블 RLS 켜기
 alter table public.couples enable row level security;
