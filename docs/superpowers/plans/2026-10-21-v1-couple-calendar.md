@@ -158,14 +158,14 @@ v1에는 `categories`, `preferences`, `person_tags`, `date_records`, `photos`, `
 
 **Interfaces:**
 - Produces:
-  - `leave_couple() returns uuid`: 혼자면 커플을 delete하고 null을 반환한다. 둘이면 한 트랜잭션에서 아래를 처리하고 내 새 커플 id를 반환한다(CPL-06, 06a).
+  - `leave_couple() returns uuid`: ~~혼자면 커플을 delete하고 null을 반환한다.~~ (2026-10-23 변경: 혼자면 `not_connected` 예외를 낸다. 갱신 안 된 화면에서 눌러도 내 데이터가 지워지지 않게 하려는 것, 마이그레이션 000004) 둘이면 한 트랜잭션에서 아래를 처리하고 내 새 커플 id를 반환한다(CPL-06, 06a).
     1. 새 커플(start_date null, created_by 나)을 만들고, 내 멤버 행의 couple_id를 새 커플로 바꾸고 role을 owner로 한다.
     2. `created_by_member_id = 나`인 events를 새 커플로 옮긴다.
     3. 옮긴 events가 쓰는 shift_types 중, 남은 events도 쓰는 것은 새 커플에 복사해 옮긴 events가 복사본을 가리키게 한다. 나머지는 통째로 옮긴다.
     4. 두 커플 모두에서 `owner_member_id`가 그 커플 멤버가 아닌 events는 `owner_member_id = created_by_member_id`로 바꾼다. created_by가 null이면 그 커플 남은 멤버로 바꾼다. 남은 근무 유형의 owner도 같은 규칙을 따른다.
     5. 기존 커플의 anniversaries를 delete한다.
     6. 남은 멤버를 owner로 바꾸고 기존 커플에 새 초대 코드를 만든다. 새 커플에도 초대 코드를 만든다.
-  - `delete_my_account() returns void`: `leave_couple()` 처리 → 새로 생긴 내 1인 커플 delete → `delete from auth.users where id = auth.uid()`.
+  - `delete_my_account() returns void`: 혼자면 내 커플을 delete, 둘이면 `leave_couple()` 처리 → 새로 생긴 내 1인 커플 delete → `delete from auth.users where id = auth.uid()`.
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다.**
   - `leave_alone_deletes`: 1인 커플에서 leave → couples 0행, 반환 null
