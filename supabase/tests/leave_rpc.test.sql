@@ -1,7 +1,7 @@
 -- 연결 끊기·계정 삭제 RPC 검증 (CPL-06, CPL-06a, CPL-07)
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(31);
+select plan(35);
 -- 복합 외래 키는 deferrable이라 위반을 문장 단위로 잡으려고 즉시 검사로 바꾼다
 -- RPC 호출 동안만 deferred로 두고, 호출 뒤 immediate로 돌려 커밋 시점 검사를 대신한다
 set constraints all immediate;
@@ -70,14 +70,31 @@ insert into t select 'st1', string_agg(id::text, ',' order by name) from shift_t
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000a7","role":"authenticated"}';
 insert into t values ('c7', public.create_couple(null, '혼자', 'mint')::text);
-select is(public.leave_couple(), null, 'leave_alone_deletes (returns null)');
+-- 혼자인 사람의 끊기는 막는다: 상대가 먼저 끊어 갱신 안 된 화면에서 눌러도 내 데이터가 지워지면 안 된다
+select throws_ok($$select public.leave_couple()$$, 'P0001', 'not_connected', 'leave_alone_rejected');
 reset role;
 select is((select count(*)::int from couples where id = (select v::uuid from t where k = 'c7')),
-  0, 'leave_alone_deletes (couple gone)');
+  1, 'leave_alone_rejected (couple kept)');
+-- 혼자 커플은 계정 삭제가 지운다
+set local role authenticated;
+select lives_ok($$select public.delete_my_account()$$, 'delete_alone_account (runs)');
+reset role;
+select is((select count(*)::int from couples where id = (select v::uuid from t where k = 'c7')),
+  0, 'delete_alone_account (couple gone)');
+select is((select count(*)::int from auth.users where id = '00000000-0000-0000-0000-0000000000a7'),
+  0, 'delete_alone_account (auth user gone)');
 
 -- 커플이 없으면 끊을 수 없다
 set local role authenticated;
 select throws_ok($$select public.leave_couple()$$, 'P0001', 'not_in_couple', 'leave_without_couple_fails');
+
+-- together 일정에 주인을 채우면 거부 (상대가 내 연결 끊기를 막지 못하게)
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+select throws_ok(
+  $$update events set owner_member_id = (select id from couple_members where user_id = '00000000-0000-0000-0000-0000000000a1') where memo = 'e4'$$,
+  '23514', 'new row for relation "events" violates check constraint "events_together_no_owner"',
+  'together_event_rejects_owner');
 
 -- ===== leave_keeps_own_events: 커플1에서 a1이 끊는다 =====
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
