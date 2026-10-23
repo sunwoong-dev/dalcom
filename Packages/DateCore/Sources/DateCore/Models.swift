@@ -64,6 +64,25 @@ public struct Event: Codable, Identifiable, Hashable, Sendable {
         case updatedAt = "updated_at"
     }
 
+    public init(id: UUID, coupleId: UUID, ownerKind: OwnerKind, ownerMemberId: UUID?, createdByMemberId: UUID?,
+                shiftTypeId: UUID?, title: String?, day: LocalDate, endDay: LocalDate?, allDay: Bool,
+                startTime: LocalTime?, endTime: LocalTime?, memo: String?, updatedAt: Date) {
+        self.id = id
+        self.coupleId = coupleId
+        self.ownerKind = ownerKind
+        self.ownerMemberId = ownerMemberId
+        self.createdByMemberId = createdByMemberId
+        self.shiftTypeId = shiftTypeId
+        self.title = title
+        self.day = day
+        self.endDay = endDay
+        self.allDay = allDay
+        self.startTime = startTime
+        self.endTime = endTime
+        self.memo = memo
+        self.updatedAt = updatedAt
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)

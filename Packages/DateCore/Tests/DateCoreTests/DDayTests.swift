@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import DateCore
 
-private func d(_ y: Int, _ m: Int, _ day: Int) -> LocalDate { LocalDate(year: y, month: m, day: day) }
 private let jieun = Member(id: UUID(), coupleId: UUID(), userId: UUID(), role: "owner",
                            nickname: "지은", birthday: d(1998, 5, 3), color: .pink)
 
